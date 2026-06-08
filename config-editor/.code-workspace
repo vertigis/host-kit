@@ -1,0 +1,12 @@
+{
+    "folders": [
+        {
+            "name": "STACKS",
+            "path": "/opt/stacks"
+        },        
+        {
+            "name": "EXAMPLES",
+            "path": "/examples"
+        }
+    ]
+}

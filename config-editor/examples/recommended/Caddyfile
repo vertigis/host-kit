@@ -1,0 +1,9 @@
+{
+    acme_ca https://acme.contoso.com/acme/directory
+}
+
+apps.contoso.com {
+    handle {
+        reverse_proxy http://studio:8080
+    }
+}

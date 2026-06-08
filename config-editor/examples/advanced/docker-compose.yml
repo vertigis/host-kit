@@ -1,0 +1,163 @@
+x-kinit: &kinit
+  KINIT_PRINCIPAL: svc-containers@CONTOSO.COM
+  KINIT_SECRET_FILE: /opt/secret
+
+services:
+  dhcp-fw:
+    image: ghcr.io/vertigis/host-kit/dhcp-fw:latest
+    environment:
+      DHCP_HOSTNAME: my-studio
+    volumes:
+      - dhcp_data:/var/lib/dhcpcd
+    networks:
+      ingress:
+        interface_name: eth0
+        mac_address: "02:ab:cd:ef:00:01"
+      private:
+        interface_name: eth1
+    hostname: my-studio
+    privileged: true
+    restart: unless-stopped
+
+  ns-update:
+    image: ghcr.io/vertigis/host-kit/ns-update:latest
+    environment:
+      DNS_HOST: my-studio.contoso.com
+      DNS_SERVER: dc01.contoso.com
+      <<: *kinit
+    configs:
+      - source: kinit_secret
+        target: /opt/secret
+    network_mode: service:dhcp-fw
+    restart: unless-stopped
+
+  certsrv-ca:
+    image: ghcr.io/vertigis/host-kit/certsrv-ca:latest
+    environment:
+      CERTSRV_URL: https://ca.contoso.com
+      <<: *kinit
+    volumes:
+      - ca_dist:/etc/ssl/certs:ro
+      - ca_root:/data
+    configs:
+      - source: kinit_secret
+        target: /opt/secret
+    restart: unless-stopped
+
+  ca-enroll:
+    image: ghcr.io/vertigis/host-kit/ca-enroll:latest
+    volumes:
+      - ca_dist:/data
+      - ca_root:/opt/root:ro
+    configs:
+      - source: ca_bundle
+        target: /opt/ca_bundle.pem
+    restart: unless-stopped
+
+  cert-enroll:
+    image: ghcr.io/vertigis/host-kit/cert-enroll:latest
+    environment:
+      CERT_DIR: /data/server
+      CERT_CA: studio-web
+      CERT_SUBJECT: CN=my-studio.contoso.com
+      CERT_SAN: my-studio.contoso.com
+    volumes:
+      - certs_data:/data
+    restart: unless-stopped
+
+  certsrv-submit:
+    image: ghcr.io/vertigis/host-kit/certsrv-submit:latest
+    environment:
+      CERTSRV_URL: https://ca.contoso.com
+      CERTSRV_CA: studio-web
+      <<: *kinit
+    volumes:
+      - ca_dist:/etc/ssl/certs:ro
+      - certs_data:/data
+    configs:
+      - source: kinit_secret
+        target: /opt/secret
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - ca_dist:/etc/ssl/certs:ro
+      - certs_data:/certs:ro
+      - type: volume
+        source: config
+        target: /etc/caddy/Caddyfile
+        volume:
+          subpath: ingress/Caddyfile
+    network_mode: service:dhcp-fw
+    restart: unless-stopped
+
+  studio:
+    image: ghcr.io/vertigis/studio/base:latest
+    environment:
+      # TODO: full public HTTPS URL (root the site at /)
+      FRONTEND_URL: https://my-studio.contoso.com
+      # TODO: VertiGIS Account ID (from support)
+      VERTIGIS_ACCOUNT_ID: account_id
+      # TODO: ArcGIS Portal URL
+      ARCGIS_PORTAL_URL: https://portal.contoso.com/portal
+      # TODO: ArcGIS App ID (register app in Portal, set redirect URL to FRONTEND_URL)
+      ARCGIS_APP_ID: app_id
+      VERTIGIS_PURGE: 1
+      VERTIGIS_WORKERS: 8
+    networks:
+      default:
+        interface_name: eth0
+      private:
+        interface_name: eth1
+    volumes:
+      - data:/data
+      - logs:/var/log
+      - stmp:/stmp
+      - ca_dist:/etc/ssl/certs:ro
+    restart: unless-stopped
+
+  egress-fw:
+    image: ghcr.io/vertigis/host-kit/egress-fw:latest
+    environment:
+      ALLOW_CIDRS: >
+        10.0.0.0/8
+        172.16.0.0/12
+        192.168.0.0/16
+        150.171.110.146/24
+    network_mode: service:studio
+    privileged: true
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge
+  ingress:
+    driver: macvlan
+    driver_opts:
+      parent: eth0
+  private:
+    driver: bridge
+    internal: true
+
+volumes:
+  config:
+    external: true
+    name: vertigis-config
+  dhcp_data: {}
+  caddy_data: {}
+  caddy_config: {}
+  ca_dist: {}
+  ca_root: {}
+  certs_data: {}
+  data: {}
+  logs: {}
+  stmp: {}
+
+configs:
+  ca_bundle:
+    file: ca_bundle.pem
+  kinit_secret:
+    file: kinit_secret

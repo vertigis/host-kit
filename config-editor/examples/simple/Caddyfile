@@ -1,0 +1,7 @@
+apps.contoso.com {
+    tls /certs/server-crt.pem /certs/server-key.pem
+
+    handle {
+        reverse_proxy http://studio:8080
+    }
+}

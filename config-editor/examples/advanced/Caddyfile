@@ -1,0 +1,7 @@
+my-studio.contoso.com {
+    tls /certs/server/cert/fullchain.pem /certs/server/cert/privkey.pem
+
+    handle {
+        reverse_proxy http://studio:8080
+    }
+}
